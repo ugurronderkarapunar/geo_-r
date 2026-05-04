@@ -22,12 +22,9 @@ from pdf_report import generate_pdf_report
 
 st.set_page_config(page_title="Geopolitical Pulse", layout="wide")
 
-# Stripe ve OpenAI anahtarları
+# Stripe ve OpenAI anahtarları (eski sürüm openai==0.28.0)
 stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
-openai_api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
-
-# Yeni OpenAI istemcisi (openai>=1.0.0 için)
-openai_client = openai.OpenAI(api_key=openai_api_key)
+openai.api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
 
 # Oturum
 if "authenticated" not in st.session_state:
@@ -76,7 +73,7 @@ st.sidebar.metric("Analiz Edilen", stats["analyses"])
 st.title("🌍 Geopolitical Pulse")
 st.caption("Uluslararası İlişkiler Teorileriyle Haber Analizi")
 
-# ─── Buton: Haberleri Çek ve Analiz Et ────────────────────────────────────────
+# ─── Buton: Haberleri Çek ve Analiz Et (ESKİ SÖZDİZİMİ openai.ChatCompletion) ───
 if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
     with st.spinner("RSS kaynakları taranıyor ve OpenAI analizi yapılıyor..."):
         rss_sources = [
@@ -107,7 +104,7 @@ if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
         analyzed = 0
         for art in unanalyzed:
             try:
-                response = openai_client.chat.completions.create(
+                response = openai.ChatCompletion.create(
                     model="gpt-4o-mini",
                     messages=[{
                         "role": "user",
@@ -126,19 +123,20 @@ Analiz: ..."""
                     temperature=0.3
                 )
                 raw = response.choices[0].message.content
-                scores = {"realism": 50, "liberalism": 50, "constructivism": 50, "critical_theory": 50, "english_school": 50}
+                scores = {"realism": 50, "liberalism": 50, "constructivism": 50,
+                          "critical_theory": 50, "english_school": 50}
                 note = "Analiz oluşturulamadı."
                 for line in raw.split("\n"):
                     if "Realizm:" in line:
-                        scores["realism"] = int(''.join(filter(str.isdigit, line)))
+                        scores["realism"] = int(''.join(filter(str.isdigit, line)) or 50)
                     elif "Liberalizm:" in line:
-                        scores["liberalism"] = int(''.join(filter(str.isdigit, line)))
+                        scores["liberalism"] = int(''.join(filter(str.isdigit, line)) or 50)
                     elif "İnşacılık:" in line:
-                        scores["constructivism"] = int(''.join(filter(str.isdigit, line)))
+                        scores["constructivism"] = int(''.join(filter(str.isdigit, line)) or 50)
                     elif "Eleştirel Teori:" in line:
-                        scores["critical_theory"] = int(''.join(filter(str.isdigit, line)))
+                        scores["critical_theory"] = int(''.join(filter(str.isdigit, line)) or 50)
                     elif "İngiliz Okulu:" in line:
-                        scores["english_school"] = int(''.join(filter(str.isdigit, line)))
+                        scores["english_school"] = int(''.join(filter(str.isdigit, line)) or 50)
                     elif "Analiz:" in line:
                         note = line.replace("Analiz:", "").strip()
                 insert_analysis(art["id"], scores, note)
@@ -150,6 +148,7 @@ Analiz: ..."""
         st.rerun()
 
 # Normal akış: Son 7 gün haberlerini göster
+# ÖNEMLİ: database.py içinde get_recent_articles_with_analyses sorgusunda INNER JOIN'i LEFT JOIN yapın!
 articles = get_recent_articles_with_analyses(hours=168)
 
 if not articles:
@@ -157,13 +156,15 @@ if not articles:
 else:
     cols = st.columns(2)
     for idx, art in enumerate(articles):
+        # None hatasını kesin önlemek için her değeri 0'a çevir
         scores = {
-    "Realizm": art.get("realism_score") or 0,
-    "Liberalizm": art.get("liberalism_score") or 0,
-    "İnşacılık": art.get("constructivism_score") or 0,
-    "Eleştirel Teori": art.get("critical_theory_score") or 0,
-    "İngiliz Okulu": art.get("english_school_score") or 0,
-}
+            "Realizm": art.get("realism_score") or 0,
+            "Liberalizm": art.get("liberalism_score") or 0,
+            "İnşacılık": art.get("constructivism_score") or 0,
+            "Eleştirel Teori": art.get("critical_theory_score") or 0,
+            "İngiliz Okulu": art.get("english_school_score") or 0,
+        }
+        # scores içinde kesinlikle None kalmadı
         top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
         tags = " | ".join([f"{t}: {s:.0f}" for t, s in top])
         with cols[idx % 2]:
@@ -184,9 +185,13 @@ if "selected_article_id" in st.session_state:
         st.write(f"**Kaynak:** {article['url']}")
         df = pd.DataFrame({
             "Teori": ["Realizm","Liberalizm","İnşacılık","Eleştirel Teori","İngiliz Okulu"],
-            "Puan": [article.get("realism_score",0), article.get("liberalism_score",0),
-                     article.get("constructivism_score",0), article.get("critical_theory_score",0),
-                     article.get("english_school_score",0)]
+            "Puan": [
+                article.get("realism_score") or 0,
+                article.get("liberalism_score") or 0,
+                article.get("constructivism_score") or 0,
+                article.get("critical_theory_score") or 0,
+                article.get("english_school_score") or 0
+            ]
         })
         st.plotly_chart(px.bar(df, x="Teori", y="Puan", title="Teorik Puanlar"))
         st.markdown("### Analiz Notu")
