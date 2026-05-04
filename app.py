@@ -4,21 +4,17 @@ Main Streamlit application entry point.
 """
 
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
-import logging
+import pandas as pd
+import plotly.express as px
+from datetime import datetime, timedelta
 import os
-from datetime import datetime
 
-# ── Internal modules ──────────────────────────────────────────────────────────
-from src.database import (
-    init_db, get_recent_articles_with_analyses,
-    get_article_by_id, get_db_stats
-)
-from src.fetch_feeds import fetch_and_store_feeds
-from src.analyzer import run_analysis
-from src.pdf_report import generate_pdf_report
+# Bu import'lar src olmadan, doğrudan dosya adlarıyla
+from database import init_db, SessionLocal, Feed, Analysis, User
+from logger_config import logger
+from pdf_report import generate_pdf_report
+from analyzer import get_openai_client, analyze_news  # gerekirse
+from fetch_feeds import fetch_and_store_feeds
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
