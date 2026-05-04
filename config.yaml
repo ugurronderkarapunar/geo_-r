@@ -1,0 +1,36 @@
+# config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Gerçek hashlenmiş şifreler için önce şunu çalıştırın:
+#   python generate_passwords.py
+# Çıktıdaki hash değerlerini aşağıdaki password alanlarına yapıştırın.
+# ─────────────────────────────────────────────────────────────────────────────
+
+credentials:
+  usernames:
+
+    admin:
+      email:    admin@example.com
+      name:     Admin User
+      # python generate_passwords.py çıktısını buraya yapıştırın
+      password: "$2b$12$PLACEHOLDER_RUN_generate_passwords_py_admin"
+      role:     premium          # premium | free
+
+    premium1:
+      email:    premium@example.com
+      name:     Premium User
+      password: "$2b$12$PLACEHOLDER_RUN_generate_passwords_py_premium1"
+      role:     premium
+
+    free1:
+      email:    free@example.com
+      name:     Free User
+      password: "$2b$12$PLACEHOLDER_RUN_generate_passwords_py_free1"
+      role:     free
+
+cookie:
+  expiry_days: 30
+  key:         geopolitical_pulse_secret_key_CHANGE_THIS_IN_PROD
+  name:        geopolitical_pulse_session
+
+preauthorized:
+  emails: []
