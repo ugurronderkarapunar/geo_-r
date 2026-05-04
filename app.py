@@ -158,12 +158,12 @@ else:
     cols = st.columns(2)
     for idx, art in enumerate(articles):
         scores = {
-            "Realizm": art.get("realism_score", 0),
-            "Liberalizm": art.get("liberalism_score", 0),
-            "İnşacılık": art.get("constructivism_score", 0),
-            "Eleştirel Teori": art.get("critical_theory_score", 0),
-            "İngiliz Okulu": art.get("english_school_score", 0),
-        }
+    "Realizm": art.get("realism_score") or 0,
+    "Liberalizm": art.get("liberalism_score") or 0,
+    "İnşacılık": art.get("constructivism_score") or 0,
+    "Eleştirel Teori": art.get("critical_theory_score") or 0,
+    "İngiliz Okulu": art.get("english_school_score") or 0,
+}
         top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
         tags = " | ".join([f"{t}: {s:.0f}" for t, s in top])
         with cols[idx % 2]:
