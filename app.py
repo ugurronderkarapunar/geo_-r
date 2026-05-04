@@ -22,7 +22,7 @@ from pdf_report import generate_pdf_report
 
 st.set_page_config(page_title="Geopolitical Pulse", layout="wide")
 
-# Stripe ve OpenAI anahtarları (eski sürüm openai==0.28.0)
+# Stripe ve OpenAI anahtarları (openai==0.28.0)
 stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
 openai.api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
 
@@ -73,7 +73,7 @@ st.sidebar.metric("Analiz Edilen", stats["analyses"])
 st.title("🌍 Geopolitical Pulse")
 st.caption("Uluslararası İlişkiler Teorileriyle Haber Analizi")
 
-# ─── Buton: Haberleri Çek ve Analiz Et (ESKİ SÖZDİZİMİ openai.ChatCompletion) ───
+# ─── Buton: Haberleri Çek ve Analiz Et ────────────────────────────────────────
 if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
     with st.spinner("RSS kaynakları taranıyor ve OpenAI analizi yapılıyor..."):
         rss_sources = [
@@ -104,40 +104,47 @@ if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
         analyzed = 0
         for art in unanalyzed:
             try:
+                # Syntax hatasını önlemek için normal string kullanıldı
+                prompt = (
+                    f"Şu haberi Uluslararası İlişkiler teorilerine göre puanla (0-100) ve Türkçe olarak ayrıntılı bir analiz notu yaz (150 kelime).\n\n"
+                    f"Başlık: {art['title']}\n"
+                    f"Özet: {art.get('summary', '')[:1500]}\n\n"
+                    f"Çıktı formatı (sadece şu şekilde, başka metin olmasın):\n"
+                    f"Realizm: XX\n"
+                    f"Liberalizm: XX\n"
+                    f"İnşacılık: XX\n"
+                    f"Eleştirel Teori: XX\n"
+                    f"İngiliz Okulu: XX\n"
+                    f"Analiz: [Türkçe analiz metni]"
+                )
                 response = openai.ChatCompletion.create(
                     model="gpt-4o-mini",
-                    messages=[{
-                        "role": "user",
-                        "content = f"""Şu haberi Uluslararası İlişkiler teorilerine göre puanla (0-100) ve **Türkçe** olarak ayrıntılı bir analiz notu yaz (150 kelime).
-Başlık: {art['title']}
-Özet: {art.get('summary', '')[:1500]}
-
-Çıktı formatı (sadece şu şekilde, başka metin olmasın):
-Realizm: XX
-Liberalizm: XX
-İnşacılık: XX
-Eleştirel Teori: XX
-İngiliz Okulu: XX
-Analiz: [Türkçe analiz metni]
-                    }],
-                    temperature=0.3
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=600
                 )
                 raw = response.choices[0].message.content
                 scores = {"realism": 50, "liberalism": 50, "constructivism": 50,
                           "critical_theory": 50, "english_school": 50}
                 note = "Analiz oluşturulamadı."
                 for line in raw.split("\n"):
-                    if "Realizm:" in line:
-                        scores["realism"] = int(''.join(filter(str.isdigit, line)) or 50)
-                    elif "Liberalizm:" in line:
-                        scores["liberalism"] = int(''.join(filter(str.isdigit, line)) or 50)
-                    elif "İnşacılık:" in line:
-                        scores["constructivism"] = int(''.join(filter(str.isdigit, line)) or 50)
-                    elif "Eleştirel Teori:" in line:
-                        scores["critical_theory"] = int(''.join(filter(str.isdigit, line)) or 50)
-                    elif "İngiliz Okulu:" in line:
-                        scores["english_school"] = int(''.join(filter(str.isdigit, line)) or 50)
-                    elif "Analiz:" in line:
+                    line = line.strip()
+                    if line.startswith("Realizm:"):
+                        try: scores["realism"] = int(''.join(filter(str.isdigit, line)))
+                        except: pass
+                    elif line.startswith("Liberalizm:"):
+                        try: scores["liberalism"] = int(''.join(filter(str.isdigit, line)))
+                        except: pass
+                    elif line.startswith("İnşacılık:"):
+                        try: scores["constructivism"] = int(''.join(filter(str.isdigit, line)))
+                        except: pass
+                    elif line.startswith("Eleştirel Teori:"):
+                        try: scores["critical_theory"] = int(''.join(filter(str.isdigit, line)))
+                        except: pass
+                    elif line.startswith("İngiliz Okulu:"):
+                        try: scores["english_school"] = int(''.join(filter(str.isdigit, line)))
+                        except: pass
+                    elif line.startswith("Analiz:"):
                         note = line.replace("Analiz:", "").strip()
                 insert_analysis(art["id"], scores, note)
                 analyzed += 1
@@ -147,8 +154,7 @@ Analiz: [Türkçe analiz metni]
         st.success(f"{analyzed} haber analiz edildi. Sayfayı yenileyin!")
         st.rerun()
 
-# Normal akış: Son 7 gün haberlerini göster
-# ÖNEMLİ: database.py içinde get_recent_articles_with_analyses sorgusunda INNER JOIN'i LEFT JOIN yapın!
+# Normal akış: Son 7 gün haberlerini göster (LEFT JOIN sayesinde analizsizler de gelir)
 articles = get_recent_articles_with_analyses(hours=168)
 
 if not articles:
@@ -156,7 +162,6 @@ if not articles:
 else:
     cols = st.columns(2)
     for idx, art in enumerate(articles):
-        # None hatasını kesin önlemek için her değeri 0'a çevir
         scores = {
             "Realizm": art.get("realism_score") or 0,
             "Liberalizm": art.get("liberalism_score") or 0,
@@ -164,7 +169,6 @@ else:
             "Eleştirel Teori": art.get("critical_theory_score") or 0,
             "İngiliz Okulu": art.get("english_school_score") or 0,
         }
-        # scores içinde kesinlikle None kalmadı
         top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
         tags = " | ".join([f"{t}: {s:.0f}" for t, s in top])
         with cols[idx % 2]:
