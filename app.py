@@ -22,9 +22,12 @@ from pdf_report import generate_pdf_report
 
 st.set_page_config(page_title="Geopolitical Pulse", layout="wide")
 
-# Stripe test key
+# Stripe ve OpenAI anahtarları
 stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
-openai.api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
+openai_api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
+
+# Yeni OpenAI istemcisi (openai>=1.0.0 için)
+openai_client = openai.OpenAI(api_key=openai_api_key)
 
 # Oturum
 if "authenticated" not in st.session_state:
@@ -76,7 +79,6 @@ st.caption("Uluslararası İlişkiler Teorileriyle Haber Analizi")
 # ─── Buton: Haberleri Çek ve Analiz Et ────────────────────────────────────────
 if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
     with st.spinner("RSS kaynakları taranıyor ve OpenAI analizi yapılıyor..."):
-        # RSS kaynakları
         rss_sources = [
             {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
             {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"},
@@ -86,7 +88,7 @@ if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
         for src in rss_sources:
             try:
                 feed = feedparser.parse(src["url"])
-                for entry in feed.entries[:3]:  # Her kaynaktan son 3 haber
+                for entry in feed.entries[:3]:
                     article_id, is_new = insert_article(
                         url=entry.link,
                         title=entry.title,
@@ -101,12 +103,11 @@ if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
                 st.warning(f"{src['name']} hatası: {e}")
         st.success(f"{new_count} yeni haber eklendi. Şimdi analiz ediliyor...")
         
-        # Analiz yapılmayanları bul ve OpenAI ile analiz et
         unanalyzed = get_unanalyzed_articles(limit=10)
         analyzed = 0
         for art in unanalyzed:
             try:
-                response = openai.ChatCompletion.create(
+                response = openai_client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{
                         "role": "user",
@@ -125,7 +126,6 @@ Analiz: ..."""
                     temperature=0.3
                 )
                 raw = response.choices[0].message.content
-                # Basit parse
                 scores = {"realism": 50, "liberalism": 50, "constructivism": 50, "critical_theory": 50, "english_school": 50}
                 note = "Analiz oluşturulamadı."
                 for line in raw.split("\n"):
@@ -149,8 +149,8 @@ Analiz: ..."""
         st.success(f"{analyzed} haber analiz edildi. Sayfayı yenileyin!")
         st.rerun()
 
-# Normal akış: Son 24 saat haberlerini göster
-articles = get_recent_articles_with_analyses(hours=168)  # Son 7 gün
+# Normal akış: Son 7 gün haberlerini göster
+articles = get_recent_articles_with_analyses(hours=168)
 
 if not articles:
     st.info("📭 Henüz hiç haber yok. Sol menüden **'Şimdi Haberleri Çek ve Analiz Et'** butonuna tıklayarak ilk haberleri getirebilirsiniz.")
