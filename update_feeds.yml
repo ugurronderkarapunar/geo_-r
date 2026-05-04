@@ -1,73 +1,31 @@
-name: 🌍 Geopolitical Pulse — Auto Update
-
+name: Update Feeds and Analyze
 on:
   schedule:
-    # Her 6 saatte bir çalış (UTC)
-    - cron: "0 */6 * * *"
-  workflow_dispatch:
-    inputs:
-      limit:
-        description: "Kaç makale analiz edilsin? (default: 20)"
-        required: false
-        default: "20"
+    - cron: '0 */6 * * *'   # Her 6 saatte
+  workflow_dispatch:         # Manuel çalıştırma için
 
 jobs:
-  update-feeds:
-    name: Fetch & Analyse
+  update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────────
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          # Commit yapmak için token gerekli
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── 2. Python ────────────────────────────────────────────────────────────
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      # ── 3. Dependencies ──────────────────────────────────────────────────────
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # ── 4. Restore DB from cache (optional speed-up) ─────────────────────────
-      - name: Restore database cache
-        uses: actions/cache@v4
-        with:
-          path: geopolitical_pulse.db
-          key: gp-db-${{ github.run_id }}
-          restore-keys: |
-            gp-db-
-
-      # ── 5. Fetch RSS feeds ───────────────────────────────────────────────────
-      - name: Fetch RSS feeds
-        run: python scripts/update.py --fetch-only
+          python-version: '3.10'
+      - run: pip install feedparser openai
+      - name: Fetch RSS
+        env:
+          GP_DB_PATH: geopolitical_pulse.db
+        run: python fetch_feeds.py
+      - name: Analyze with OpenAI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      # ── 6. Run AI analysis ───────────────────────────────────────────────────
-      - name: Run AI analysis
+          GP_DB_PATH: geopolitical_pulse.db
+        run: python analyzer.py
+      - name: Commit and push changes
         run: |
-          LIMIT=${{ github.event.inputs.limit || '20' }}
-          python scripts/update.py --analyze-only --limit "$LIMIT"
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
-      # ── 7. Commit updated database ───────────────────────────────────────────
-      - name: Commit updated database
-        run: |
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
-          git add geopolitical_pulse.db error.log || true
-          # Değişiklik yoksa commit atma
-          git diff --staged --quiet || \
-            git commit -m "🤖 Auto-update: feeds & analysis [$(date -u +'%Y-%m-%d %H:%M UTC')]"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add geopolitical_pulse.db
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto update feeds and analyses"
           git push
