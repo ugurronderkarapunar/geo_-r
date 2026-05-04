@@ -4,37 +4,44 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import os
 import stripe
+import feedparser
+import openai
+import time
 
 from database import (
     init_db,
     get_recent_articles_with_analyses,
     get_article_by_id,
     get_db_stats,
+    insert_article,
+    insert_analysis,
+    get_unanalyzed_articles,
 )
 from logger_config import logger
 from pdf_report import generate_pdf_report
 
 st.set_page_config(page_title="Geopolitical Pulse", layout="wide")
 
-# Stripe test key (secrets veya env)
+# Stripe test key
 stripe.api_key = st.secrets.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
+openai.api_key = st.secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY"))
 
-# Basit oturum yönetimi (demo)
+# Oturum
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.username = None
 
 def login():
     with st.sidebar:
-        st.subheader("🔐 Giriş / Abonelik")
-        email = st.text_input("E-posta adresiniz")
+        st.subheader("🔐 Giriş")
+        email = st.text_input("E-posta")
         if st.button("Demo Giriş (Ücretsiz)"):
             st.session_state.authenticated = True
             st.session_state.username = email or "demo@example.com"
             st.rerun()
         if st.button("Premium Abone Ol (Stripe Test)"):
             try:
-                checkout_session = stripe.checkout.Session.create(
+                session = stripe.checkout.Session.create(
                     payment_method_types=['card'],
                     line_items=[{
                         'price_data': {
@@ -48,41 +55,108 @@ def login():
                     success_url='https://yourdomain.com/success',
                     cancel_url='https://yourdomain.com/cancel',
                 )
-                st.markdown(f"[Ödeme Sayfasına Git]({checkout_session.url})")
+                st.markdown(f"[Ödeme Sayfası]({session.url})")
             except Exception as e:
-                st.error("Stripe test modunda – ödeme simülasyonu")
+                st.error("Stripe test modunda")
                 logger.error(f"Stripe: {e}")
 
 if not st.session_state.authenticated:
     login()
     st.stop()
 
-# Kullanıcı premium mu? Basit demo: email 'premium' içeriyorsa
 is_premium = "premium" in st.session_state.username.lower()
-
-# Veritabanını başlat
-if not init_db():
-    st.error("Veritabanı başlatılamadı. Logları kontrol edin.")
-    st.stop()
-
-st.title("🌍 Geopolitical Pulse")
-st.caption("Uluslararası İlişkiler Teorileriyle Haber Analizi")
-
-# İstatistikleri göster
+init_db()
 stats = get_db_stats()
 st.sidebar.metric("Toplam Makale", stats["articles"])
 st.sidebar.metric("Analiz Edilen", stats["analyses"])
 
-# Son 24 saat haberlerini getir
-articles = get_recent_articles_with_analyses(hours=24)
+st.title("🌍 Geopolitical Pulse")
+st.caption("Uluslararası İlişkiler Teorileriyle Haber Analizi")
+
+# ─── Buton: Haberleri Çek ve Analiz Et ────────────────────────────────────────
+if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
+    with st.spinner("RSS kaynakları taranıyor ve OpenAI analizi yapılıyor..."):
+        # RSS kaynakları
+        rss_sources = [
+            {"name": "BBC World", "url": "https://feeds.bbci.co.uk/news/world/rss.xml"},
+            {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"},
+            {"name": "Foreign Policy", "url": "https://foreignpolicy.com/feed/"},
+        ]
+        new_count = 0
+        for src in rss_sources:
+            try:
+                feed = feedparser.parse(src["url"])
+                for entry in feed.entries[:3]:  # Her kaynaktan son 3 haber
+                    article_id, is_new = insert_article(
+                        url=entry.link,
+                        title=entry.title,
+                        source=src["name"],
+                        published_at=entry.get("published", ""),
+                        summary=entry.get("summary", "")[:500],
+                        fetched_at=datetime.utcnow().isoformat()
+                    )
+                    if is_new and article_id:
+                        new_count += 1
+            except Exception as e:
+                st.warning(f"{src['name']} hatası: {e}")
+        st.success(f"{new_count} yeni haber eklendi. Şimdi analiz ediliyor...")
+        
+        # Analiz yapılmayanları bul ve OpenAI ile analiz et
+        unanalyzed = get_unanalyzed_articles(limit=10)
+        analyzed = 0
+        for art in unanalyzed:
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-4o-mini",
+                    messages=[{
+                        "role": "user",
+                        "content": f"""Şu haberi Uluslararası İlişkiler teorilerine göre puanla (0-100) ve kısa analiz notu yaz.
+Başlık: {art['title']}
+Özet: {art.get('summary', '')[:1500]}
+
+Çıktı formatı (sadece şu şekilde, başka metin olmasın):
+Realizm: XX
+Liberalizm: XX
+İnşacılık: XX
+Eleştirel Teori: XX
+İngiliz Okulu: XX
+Analiz: ..."""
+                    }],
+                    temperature=0.3
+                )
+                raw = response.choices[0].message.content
+                # Basit parse
+                scores = {"realism": 50, "liberalism": 50, "constructivism": 50, "critical_theory": 50, "english_school": 50}
+                note = "Analiz oluşturulamadı."
+                for line in raw.split("\n"):
+                    if "Realizm:" in line:
+                        scores["realism"] = int(''.join(filter(str.isdigit, line)))
+                    elif "Liberalizm:" in line:
+                        scores["liberalism"] = int(''.join(filter(str.isdigit, line)))
+                    elif "İnşacılık:" in line:
+                        scores["constructivism"] = int(''.join(filter(str.isdigit, line)))
+                    elif "Eleştirel Teori:" in line:
+                        scores["critical_theory"] = int(''.join(filter(str.isdigit, line)))
+                    elif "İngiliz Okulu:" in line:
+                        scores["english_school"] = int(''.join(filter(str.isdigit, line)))
+                    elif "Analiz:" in line:
+                        note = line.replace("Analiz:", "").strip()
+                insert_analysis(art["id"], scores, note)
+                analyzed += 1
+                time.sleep(0.5)
+            except Exception as e:
+                logger.error(f"OpenAI hatası {art['id']}: {e}")
+        st.success(f"{analyzed} haber analiz edildi. Sayfayı yenileyin!")
+        st.rerun()
+
+# Normal akış: Son 24 saat haberlerini göster
+articles = get_recent_articles_with_analyses(hours=168)  # Son 7 gün
 
 if not articles:
-    st.info("Son 24 saatte analiz edilmiş haber yok. Lütfen daha sonra kontrol edin.")
+    st.info("📭 Henüz hiç haber yok. Sol menüden **'Şimdi Haberleri Çek ve Analiz Et'** butonuna tıklayarak ilk haberleri getirebilirsiniz.")
 else:
-    # Kartları 2 sütun halinde göster
     cols = st.columns(2)
     for idx, art in enumerate(articles):
-        # En yüksek puanlı 2 teori
         scores = {
             "Realizm": art.get("realism_score", 0),
             "Liberalizm": art.get("liberalism_score", 0),
@@ -90,15 +164,14 @@ else:
             "Eleştirel Teori": art.get("critical_theory_score", 0),
             "İngiliz Okulu": art.get("english_school_score", 0),
         }
-        top_theories = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
-        theory_tags = " | ".join([f"{t}: {s:.0f}" for t, s in top_theories])
-
+        top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:2]
+        tags = " | ".join([f"{t}: {s:.0f}" for t, s in top])
         with cols[idx % 2]:
             with st.expander(f"📰 {art['title']}"):
                 st.markdown(f"**Kaynak:** {art['source']}")
                 st.markdown(f"**Yayın:** {art.get('published_at', 'Bilinmiyor')}")
-                st.markdown(f"**🔖 Teori etiketleri:** {theory_tags}")
-                if st.button("🔍 Detaylı Analiz", key=f"btn_{art['id']}"):
+                st.markdown(f"**🔖 {tags}**")
+                if st.button("Detay", key=f"btn_{art['id']}"):
                     st.session_state.selected_article_id = art["id"]
                     st.rerun()
 
@@ -109,45 +182,25 @@ if "selected_article_id" in st.session_state:
     if article:
         st.subheader(f"🔍 {article['title']}")
         st.write(f"**Kaynak:** {article['url']}")
-        st.write(f"**Yayın tarihi:** {article.get('published_at', 'Bilinmiyor')}")
-
-        # Puanları DataFrame ve grafik
-        df_scores = pd.DataFrame({
-            "Teori": ["Realizm", "Liberalizm", "İnşacılık", "Eleştirel Teori", "İngiliz Okulu"],
-            "Puan": [
-                article.get("realism_score", 0),
-                article.get("liberalism_score", 0),
-                article.get("constructivism_score", 0),
-                article.get("critical_theory_score", 0),
-                article.get("english_school_score", 0),
-            ]
+        df = pd.DataFrame({
+            "Teori": ["Realizm","Liberalizm","İnşacılık","Eleştirel Teori","İngiliz Okulu"],
+            "Puan": [article.get("realism_score",0), article.get("liberalism_score",0),
+                     article.get("constructivism_score",0), article.get("critical_theory_score",0),
+                     article.get("english_school_score",0)]
         })
-        fig = px.bar(df_scores, x="Teori", y="Puan", title="Teorik Ağırlıklar", color="Teori")
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown("### 📝 Analiz Notu")
-        st.write(article.get("analysis_note", "Analiz notu bulunamadı."))
-
+        st.plotly_chart(px.bar(df, x="Teori", y="Puan", title="Teorik Puanlar"))
+        st.markdown("### Analiz Notu")
+        st.write(article.get("analysis_note", "Analiz yok."))
         if is_premium:
-            if st.button("📄 PDF Rapor Oluştur"):
-                pdf_data = generate_pdf_report(article)
-                st.download_button(
-                    label="PDF İndir",
-                    data=pdf_data,
-                    file_name=f"rapor_{article['id']}.pdf",
-                    mime="application/pdf"
-                )
+            if st.button("PDF Rapor"):
+                pdf = generate_pdf_report(article)
+                st.download_button("İndir", pdf, "rapor.pdf")
         else:
-            st.info("Premium aboneler PDF rapor görebilir. Sol menüden abone olun.")
-
-        if st.button("← Gündeme Dön"):
+            st.info("Premium aboneler PDF alabilir.")
+        if st.button("← Geri"):
             del st.session_state.selected_article_id
             st.rerun()
     else:
         st.error("Makale bulunamadı.")
         del st.session_state.selected_article_id
         st.rerun()
-
-# Footer
-st.markdown("---")
-st.caption("Geopolitical Pulse - Uluslararası İlişkiler Teorileriyle Haber Analizi")
