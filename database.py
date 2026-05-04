@@ -159,7 +159,7 @@ def get_recent_articles_with_analyses(hours: int = 24) -> list[dict]:
                 an.constructivism_score, an.critical_theory_score,
                 an.english_school_score, an.analysis_note
             FROM articles a
-            INNER JOIN analyses an ON a.id = an.article_id
+            LEFT JOIN analyses an ON a.id = an.article_id
             WHERE datetime(a.fetched_at) >= datetime('now', ?)
             ORDER BY a.fetched_at DESC
             """,
