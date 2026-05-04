@@ -12,11 +12,13 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -r requirements.txt
-      - env:
+      - name: Run agent
+        env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GP_DB_PATH: geopolitical_pulse.db
         run: python fetch_and_analyze_agent.py
-      - run: |
+      - name: Commit and push
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add geopolitical_pulse.db
