@@ -118,7 +118,7 @@ Liberalizm: XX
 İnşacılık: XX
 Eleştirel Teori: XX
 İngiliz Okulu: XX
-Analiz: [Türkçe analiz metni]"""
+Analiz: [Türkçe analiz metni]
                     }],
                     temperature=0.3
                 )
