@@ -108,7 +108,7 @@ if st.sidebar.button("📡 Şimdi Haberleri Çek ve Analiz Et", type="primary"):
                     model="gpt-4o-mini",
                     messages=[{
                         "role": "user",
-                        "content": f"""Şu haberi Uluslararası İlişkiler teorilerine göre puanla (0-100) ve kısa analiz notu yaz.
+                        "content = f"""Şu haberi Uluslararası İlişkiler teorilerine göre puanla (0-100) ve **Türkçe** olarak ayrıntılı bir analiz notu yaz (150 kelime).
 Başlık: {art['title']}
 Özet: {art.get('summary', '')[:1500]}
 
@@ -118,7 +118,7 @@ Liberalizm: XX
 İnşacılık: XX
 Eleştirel Teori: XX
 İngiliz Okulu: XX
-Analiz: ..."""
+Analiz: [Türkçe analiz metni]"""
                     }],
                     temperature=0.3
                 )
